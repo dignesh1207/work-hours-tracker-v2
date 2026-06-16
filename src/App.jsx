@@ -4,7 +4,10 @@ import {
   TrendingUp, Download, ChevronLeft, ChevronRight,
   X, DollarSign, BarChart3, Home, AlertCircle
 } from 'lucide-react';
-import { supabase } from './supabase.js';
+import {
+  fetchWorkplaces, createWorkplace, updateWorkplace, deleteWorkplace as dbDeleteWorkplace,
+  fetchSessions, createSession, updateSession, deleteSession as dbDeleteSession,
+} from './db.js';
 
 const COLORS = [
   '#E07856','#5B8C5A','#3A6B8A','#C9A961','#8B5A8C',
@@ -34,17 +37,12 @@ export default function App() {
   async function loadData() {
     try {
       setLoading(true);
-      const [{ data: wps, error: e1 }, { data: sess, error: e2 }] = await Promise.all([
-        supabase.from('workplaces').select('*').order('created_at', { ascending: true }),
-        supabase.from('sessions').select('*').order('date', { ascending: false }),
-      ]);
-      if (e1) throw e1;
-      if (e2) throw e2;
+      const [wps, sess] = await Promise.all([fetchWorkplaces(), fetchSessions()]);
       setWorkplaces(wps || []);
       setSessions(sess || []);
       setError(null);
     } catch (e) {
-      setError(e.message || 'Failed to connect to Supabase. Check your .env file.');
+      setError(e.message || 'Failed to connect to the database. Check your .env file.');
     } finally {
       setLoading(false);
     }
@@ -53,19 +51,12 @@ export default function App() {
   // ── Workplaces ─────────────────────────────────────────────────
   const upsertWorkplace = async (wp) => {
     try {
+      const fields = { name: wp.name, rate: wp.rate || null, color: wp.color };
       if (wp.id) {
-        const { data, error } = await supabase
-          .from('workplaces')
-          .update({ name: wp.name, rate: wp.rate || null, color: wp.color })
-          .eq('id', wp.id).select().single();
-        if (error) throw error;
+        const data = await updateWorkplace(wp.id, fields);
         setWorkplaces(workplaces.map(w => w.id === wp.id ? data : w));
       } else {
-        const { data, error } = await supabase
-          .from('workplaces')
-          .insert({ name: wp.name, rate: wp.rate || null, color: wp.color })
-          .select().single();
-        if (error) throw error;
+        const data = await createWorkplace(fields);
         setWorkplaces([...workplaces, data]);
       }
       setShowWorkplaceForm(false); setEditingWorkplace(null);
@@ -75,8 +66,7 @@ export default function App() {
   const deleteWorkplace = async (id) => {
     if (!confirm('Delete this workplace? All its sessions will also be deleted.')) return;
     try {
-      const { error } = await supabase.from('workplaces').delete().eq('id', id);
-      if (error) throw error;
+      await dbDeleteWorkplace(id);
       setWorkplaces(workplaces.filter(w => w.id !== id));
       setSessions(sessions.filter(s => s.workplace_id !== id));
     } catch (e) { alert('Delete failed: ' + e.message); }
@@ -93,14 +83,10 @@ export default function App() {
         notes:        s.notes || null,
       };
       if (s.id) {
-        const { data, error } = await supabase
-          .from('sessions').update(payload).eq('id', s.id).select().single();
-        if (error) throw error;
+        const data = await updateSession(s.id, payload);
         setSessions(sessions.map(x => x.id === s.id ? data : x));
       } else {
-        const { data, error } = await supabase
-          .from('sessions').insert(payload).select().single();
-        if (error) throw error;
+        const data = await createSession(payload);
         setSessions([data, ...sessions]);
       }
       setShowSessionForm(false); setEditingSession(null);
@@ -110,8 +96,7 @@ export default function App() {
   const deleteSession = async (id) => {
     if (!confirm('Delete this session?')) return;
     try {
-      const { error } = await supabase.from('sessions').delete().eq('id', id);
-      if (error) throw error;
+      await dbDeleteSession(id);
       setSessions(sessions.filter(s => s.id !== id));
     } catch (e) { alert('Delete failed: ' + e.message); }
   };
@@ -228,7 +213,7 @@ export default function App() {
       <p style={{color:'#666',fontSize:14,lineHeight:1.6}}>{error}</p>
       <p style={{color:'#999',fontSize:13}}>
         Make sure your <code>.env</code> file has the correct<br/>
-        <code>VITE_SUPABASE_URL</code> and <code>VITE_SUPABASE_ANON_KEY</code>
+        <code>VITE_FIREBASE_*</code> values from your Firebase project
       </p>
       <button style={S.primaryBtn} onClick={loadData}>Retry</button>
     </div>

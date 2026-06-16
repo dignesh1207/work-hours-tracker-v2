@@ -1,71 +1,57 @@
 # 🕐 Work Hours Tracker
 
-Frontend-only app that talks directly to **Supabase**. No backend server needed.
+Frontend-only app that talks directly to **Firebase Firestore**. No backend server needed, syncs across all your devices, and the free tier never pauses.
 
 ```
-React (Vite) → Supabase SDK → Supabase Database
-```
-
----
-
-## 🗄️ Step 1: Set up the database in Supabase
-
-### Create the tables
-
-1. Go to https://supabase.com/dashboard → your project
-2. Click **"SQL Editor"** in the left sidebar
-3. Click **"New query"**
-4. Paste this SQL and click **"Run"**:
-
-```sql
--- Workplaces table
-CREATE TABLE IF NOT EXISTS workplaces (
-  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name       TEXT NOT NULL,
-  rate       NUMERIC,
-  color      TEXT NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- Sessions table
-CREATE TABLE IF NOT EXISTS sessions (
-  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  workplace_id UUID NOT NULL REFERENCES workplaces(id) ON DELETE CASCADE,
-  date         DATE NOT NULL,
-  start_time   TEXT NOT NULL,
-  end_time     TEXT NOT NULL,
-  notes        TEXT,
-  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-
--- Indexes for fast queries
-CREATE INDEX IF NOT EXISTS idx_sessions_date      ON sessions(date);
-CREATE INDEX IF NOT EXISTS idx_sessions_workplace ON sessions(workplace_id);
-```
-
-5. You should see **"Success. No rows returned"** — that means it worked.
-
-### Enable Row Level Security (RLS) — keep your data safe
-
-Still in the SQL Editor, run this second query:
-
-```sql
--- Allow all operations for now (personal use, no auth)
-ALTER TABLE workplaces ENABLE ROW LEVEL SECURITY;
-ALTER TABLE sessions   ENABLE ROW LEVEL SECURITY;
-
-CREATE POLICY "Allow all on workplaces" ON workplaces FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Allow all on sessions"   ON sessions   FOR ALL USING (true) WITH CHECK (true);
+React (Vite) → Firebase SDK → Firestore Database
 ```
 
 ---
 
-## 🔑 Step 2: Get your Supabase credentials
+## 🗄️ Step 1: Create a Firebase project
 
-1. In your Supabase project, go to **⚙️ Settings → API**
-2. You need two values:
-   - **Project URL** — looks like `https://vwuxjcgmkrdzurzloccc.supabase.co`
-   - **anon public key** — a long string starting with `eyJ...`
+1. Go to https://console.firebase.google.com → **Add project**
+2. Give it a name (e.g. `work-hours-tracker`), accept the defaults, and create it.
+   You can disable Google Analytics — it's not needed.
+
+### Create the database
+
+1. In the left sidebar, open **Build → Firestore Database**
+2. Click **Create database**
+3. Choose a location close to you, and start in **Production mode** (we'll set the rules below)
+
+You do **not** need to create any tables/collections — `workplaces` and `sessions`
+are created automatically the first time the app saves data.
+
+### Set the security rules
+
+In **Firestore Database → Rules**, paste this and click **Publish**:
+
+```
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Personal use, no login — allow all reads/writes.
+    match /{document=**} {
+      allow read, write: if true;
+    }
+  }
+}
+```
+
+> ⚠️ These rules let anyone who has your Firebase config read and write the data —
+> the same "open" setup the app used before. Fine for a personal tracker. If you
+> ever want it locked down, add Firebase Authentication and tighten these rules.
+
+---
+
+## 🔑 Step 2: Get your Firebase config
+
+1. In the Firebase console, click the **⚙️ gear → Project settings**
+2. Scroll to **Your apps**, click the **`</>` (Web)** icon to register a web app
+3. Give it a nickname, click **Register app**
+4. Firebase shows a `firebaseConfig` object — keep these six values handy:
+   `apiKey`, `authDomain`, `projectId`, `storageBucket`, `messagingSenderId`, `appId`
 
 ---
 
@@ -75,10 +61,14 @@ CREATE POLICY "Allow all on sessions"   ON sessions   FOR ALL USING (true) WITH 
    ```bash
    cp .env.example .env
    ```
-2. Open `.env` and fill in your values:
+2. Open `.env` and fill in your values from the `firebaseConfig` object:
    ```
-   VITE_SUPABASE_URL=https://vwuxjcgmkrdzurzloccc.supabase.co
-   VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+   VITE_FIREBASE_API_KEY=AIza...
+   VITE_FIREBASE_AUTH_DOMAIN=your-project.firebaseapp.com
+   VITE_FIREBASE_PROJECT_ID=your-project-id
+   VITE_FIREBASE_STORAGE_BUCKET=your-project.appspot.com
+   VITE_FIREBASE_MESSAGING_SENDER_ID=1234567890
+   VITE_FIREBASE_APP_ID=1:1234567890:web:abc123
    ```
 
 ---
@@ -98,12 +88,10 @@ Open **http://localhost:5173** — you're done! 🎉
 
 1. Push your project to a GitHub repo
 2. Go to https://vercel.com → New Project → Import your repo
-3. Set these **Environment Variables** in Vercel:
-   - `VITE_SUPABASE_URL` = your Supabase project URL
-   - `VITE_SUPABASE_ANON_KEY` = your anon key
+3. Add all six **Environment Variables** from your `.env` (the `VITE_FIREBASE_*` keys)
 4. Click Deploy
 
-Your app is now live on the internet with a real database!
+Your app is now live on the internet with a real, synced database!
 
 ---
 
@@ -113,13 +101,13 @@ Your app is now live on the internet with a real database!
 work-hours-tracker/
 ├── src/
 │   ├── App.jsx        ← entire app (components + logic)
-│   ├── supabase.js    ← Supabase client (reads from .env)
+│   ├── db.js          ← Firebase client + data functions (reads from .env)
 │   ├── main.jsx       ← React entry point
 │   └── index.css      ← global styles
 ├── index.html
 ├── vite.config.js
 ├── package.json
-├── .env.example       ← copy to .env and fill in credentials
+├── .env.example       ← copy to .env and fill in your Firebase config
 └── .gitignore
 ```
 
@@ -127,14 +115,14 @@ work-hours-tracker/
 
 ## 🛠️ Troubleshooting
 
-**"Missing VITE_SUPABASE_URL" error**
-→ You haven't created the `.env` file yet. Run `cp .env.example .env` and fill it in.
+**"Missing Firebase config" error**
+→ You haven't created the `.env` file yet, or a value is blank. Run `cp .env.example .env` and fill in all six `VITE_FIREBASE_*` values.
 
-**"Failed to connect to Supabase"**
-→ Your anon key or URL is wrong. Re-copy them from Supabase → Settings → API.
+**"Failed to connect to the database"**
+→ Double-check the config values against Firebase → Project settings → Your apps.
 
-**Data not saving / RLS error**
-→ Run the RLS policy SQL from Step 1 in the Supabase SQL Editor.
+**Data not saving / "Missing or insufficient permissions"**
+→ Publish the security rules from Step 1 in Firestore Database → Rules.
 
-**Tables don't exist error**
-→ Run the CREATE TABLE SQL from Step 1 in the Supabase SQL Editor.
+**Nothing shows up across devices**
+→ Make sure both devices use the same Firebase project (same `.env` values).
